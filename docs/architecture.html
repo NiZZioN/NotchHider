@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notch Hider · How it works</title>
+<meta name="color-scheme" content="dark">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #06070b;
+    --surface: rgba(255, 255, 255, 0.035);
+    --surface-hi: rgba(255, 255, 255, 0.06);
+    --border: rgba(255, 255, 255, 0.09);
+    --text: #f5f7fb;
+    --muted: #9aa3b5;
+    --blue: #3b82f6;
+    --violet: #8b5cf6;
+    --pink: #ec4899;
+    --green: #34d399;
+    --grad: linear-gradient(90deg, var(--blue), var(--violet) 55%, var(--pink));
+    --radius: 18px;
+    --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg);
+    background-image:
+      radial-gradient(900px 420px at 50% -120px, rgba(59, 130, 246, 0.22), transparent 70%),
+      radial-gradient(700px 380px at 90% 10%, rgba(236, 72, 153, 0.10), transparent 70%);
+    color: var(--text);
+    font: 400 16px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1240px; margin: 0 auto; padding: 56px 16px 64px; }
+
+  /* Header */
+  header { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 14px; }
+  header img { width: 96px; height: 96px; filter: drop-shadow(0 10px 40px rgba(59, 130, 246, 0.45)); }
+  .eyebrow { font: 600 12px/1 var(--mono); letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-size: clamp(32px, 5vw, 46px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; }
+  h1 span { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { color: var(--muted); max-width: 620px; font-size: 17px; }
+
+  /* Menu bar mock */
+  .mock-wrap { margin: 44px auto 0; max-width: 880px; }
+  .mock {
+    position: relative; aspect-ratio: 16 / 5; border-radius: 22px 22px 14px 14px; overflow: hidden;
+    border: 10px solid #15171f; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--border);
+    background:
+      radial-gradient(120% 140% at 0% 100%, #1d4ed8 0%, transparent 55%),
+      radial-gradient(90% 120% at 100% 100%, #f43f5e 0%, transparent 55%),
+      linear-gradient(120deg, #2563eb, #7c3aed 50%, #db2777);
+  }
+  .mock::after { /* soft highlight like the logo wallpaper; fades out before every edge */
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(45% 55% at 35% 65%, rgba(255, 255, 255, 0.16), transparent 100%);
+  }
+  .bar {
+    position: absolute; inset: 0 0 auto 0; height: 34px; z-index: 2;
+    display: flex; align-items: center; justify-content: space-between; padding: 0 18px;
+    font: 500 13px/1 var(--sans); color: #fff;
+    border-radius: 0 0 var(--corner, 10px) var(--corner, 10px);
+    transition: background-color 250ms ease, backdrop-filter 250ms ease;
+  }
+  .bar .left, .bar .right { display: flex; gap: 18px; align-items: center; }
+  .bar .left b { font-weight: 700; }
+  .bar .dot { width: 14px; height: 9px; border-radius: 2px; border: 1.5px solid rgba(255, 255, 255, 0.9); }
+  .notch {
+    position: absolute; top: 0; left: 50%; width: 150px; height: 30px; transform: translateX(-50%);
+    background: #000; border-radius: 0 0 12px 12px; z-index: 3;
+  }
+  .notch::after { content: ""; position: absolute; top: 11px; left: 50%; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: #10131c; }
+  [data-mode="off"] .bar { background: transparent; }
+  [data-mode="black"] .bar { background: #000; }
+  [data-mode="glass"] .bar { background: rgba(14, 16, 24, 0.55); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); }
+  .mock-caption { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+  .mock-caption p { color: var(--muted); font-size: 14px; }
+  .seg { display: inline-flex; padding: 4px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); }
+  .seg button {
+    font: 600 13px/1 var(--sans); color: var(--muted); background: none; border: 0; cursor: pointer;
+    min-height: 36px; padding: 0 16px; border-radius: 9px; transition: color 150ms, background-color 150ms;
+  }
+  .seg button:hover { color: var(--text); }
+  .seg button[aria-pressed="true"] { color: #fff; background: var(--surface-hi); box-shadow: inset 0 0 0 1px var(--border); }
+  .seg button:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+
+  /* Pipeline */
+  h2 { font-size: 13px; font-family: var(--mono); font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); text-align: center; margin: 72px 0 24px; }
+  .flow { display: grid; grid-template-columns: 1fr 44px 1fr 44px 1fr 44px 1fr; align-items: stretch; }
+  .stage {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px; display: flex; flex-direction: column; gap: 10px; position: relative;
+  }
+  .stage.core { background: linear-gradient(180deg, rgba(59, 130, 246, 0.12), rgba(139, 92, 246, 0.06)); border-color: rgba(139, 92, 246, 0.35); box-shadow: 0 0 40px rgba(99, 102, 241, 0.15); }
+  .stage-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+  .num { font: 600 12px/1 var(--mono); color: var(--violet); }
+  .stage-head h3 { font-size: 16px; font-weight: 600; }
+  .item {
+    display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: center;
+    padding: 10px; border-radius: 12px; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+  .item.dashed { border-style: dashed; border-color: rgba(255, 255, 255, 0.16); background: transparent; }
+  .ic { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--surface-hi); color: #c7d2fe; }
+  .ic svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .ic.black { background: #000; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18); color: #fff; }
+  .ic.glass { background: linear-gradient(135deg, rgba(59, 130, 246, 0.5), rgba(236, 72, 153, 0.45)); color: #fff; }
+  .item strong { display: block; font-size: 14px; font-weight: 600; line-height: 1.3; }
+  .item small { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+  .nw { white-space: nowrap; }
+  code { font-family: var(--mono); font-size: 11.5px; color: #c4b5fd; }
+
+  .link { position: relative; display: flex; align-items: center; }
+  .link::before { content: ""; height: 2px; width: 100%; background: linear-gradient(90deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.9)); }
+  .link::after {
+    content: ""; position: absolute; right: 2px; width: 8px; height: 8px;
+    border-top: 2px solid var(--violet); border-right: 2px solid var(--violet); transform: rotate(45deg);
+  }
+  .link i { position: absolute; top: 50%; left: 0; width: 10px; height: 10px; margin-top: -5px; border-radius: 50%; background: #fff; box-shadow: 0 0 12px var(--violet); animation: travel 2.2s ease-in-out infinite; }
+  @keyframes travel { from { transform: translateX(0); opacity: 0; } 20% { opacity: 1; } 80% { opacity: 1; } to { transform: translateX(34px); opacity: 0; } }
+
+  /* Result + proof */
+  .result {
+    margin-top: 28px; display: grid; grid-template-columns: 1.2fr 1fr 1fr 1fr; gap: 14px;
+  }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+  .tile.hero { background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(236, 72, 153, 0.12)); border-color: rgba(236, 72, 153, 0.3); }
+  .tile .big { font: 600 30px/1.1 var(--mono); letter-spacing: -0.02em; }
+  .tile .big.grad { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .tile p { color: var(--muted); font-size: 13.5px; margin-top: 6px; }
+  .tile h4 { font-size: 16px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+  .tile h4 svg { width: 18px; height: 18px; stroke: var(--green); fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+
+  #diagram { padding: 8px 0 4px; }
+  #diagram > h2:first-child { margin-top: 64px; }
+  footer { margin-top: 48px; text-align: center; color: var(--muted); font-size: 13px; }
+  footer code { color: var(--muted); white-space: nowrap; }
+
+  /* ?export: just the diagram, padded, static and at 2x, for the README image */
+  .export header, .export .mock-wrap, .export footer, .export .link i { display: none; }
+  .export .page { zoom: 2; padding: 0; max-width: 1280px; }
+  .export #diagram { padding: 8px 32px 40px; }
+  .export #diagram > h2:first-child { margin-top: 32px; }
+
+  @media (max-width: 980px) {
+    .flow { grid-template-columns: 1fr; gap: 0; }
+    .link { height: 36px; justify-content: center; }
+    .link::before { width: 2px; height: 100%; background: linear-gradient(180deg, rgba(59, 130, 246, 0.2), rgba(139, 92, 246, 0.9)); }
+    .link::after { right: auto; bottom: 2px; transform: rotate(135deg); }
+    .link i { display: none; }
+    .result { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 560px) {
+    .result { grid-template-columns: 1fr; }
+    .bar .left span:nth-child(n+3), .bar .right .dot:nth-child(-n+2) { display: none; }
+    .notch { width: 96px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .link i { display: none; }
+    .bar { transition: none; }
+  }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <img src="../assets/logo-512.png" alt="Notch Hider logo" width="96" height="96">
+    <div class="eyebrow">Notch Hider · How it works</div>
+    <h1>The notch, <span>blended into black</span></h1>
+    <p class="lede">A strip window sits just under the macOS menu bar on every notched screen and paints it true black or frosted glass, so the notch disappears into it.</p>
+  </header>
+
+  <section class="mock-wrap" aria-label="Menu bar preview">
+    <div class="mock" id="mock" data-mode="black" style="--corner: 12px">
+      <div class="bar">
+        <div class="left"><b>Finder</b><span>File</span><span>Edit</span><span>View</span><span>Window</span><span>Help</span></div>
+        <div class="right"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>Fri 9:41</span></div>
+      </div>
+      <div class="notch" aria-hidden="true"></div>
+    </div>
+    <div class="mock-caption">
+      <p id="mock-text">Black: every strip pixel is exactly RGB 0, so the notch vanishes.</p>
+      <div class="seg" role="group" aria-label="Strip style">
+        <button type="button" data-mode="off" aria-pressed="false">Off</button>
+        <button type="button" data-mode="black" aria-pressed="true">Black</button>
+        <button type="button" data-mode="glass" aria-pressed="false">Glass</button>
+      </div>
+    </div>
+  </section>
+
+  <div id="diagram">
+  <h2>From setting to pixel</h2>
+  <section class="flow" aria-label="How Notch Hider works">
+    <div class="stage">
+      <div class="stage-head"><span class="num">01</span><h3>Triggers</h3></div>
+      <div class="item">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></svg></span>
+        <span><strong>Settings window</strong><small>Style, strength, corners, login, icon</small></span>
+      </div>
+      <div class="item">
+        <span class="ic"><svg viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/></svg></span>
+        <span><strong>Menu bar icon</strong><small>Hide Notch toggle, Settings, Quit</small></span>
+      </div>
+      <div class="item dashed">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></svg></span>
+        <span><strong>System events</strong><small>Displays, Spaces, wake: rebuild</small></span>
+      </div>
+    </div>
+    <div class="link" aria-hidden="true"><i></i></div>
+
+    <div class="stage core">
+      <div class="stage-head"><span class="num">02</span><h3>Notch Hider</h3></div>
+      <div class="item">
+        <span class="ic"><svg viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg></span>
+        <span><strong>Settings store</strong><small><code>BarSettings</code> in UserDefaults</small></span>
+      </div>
+      <div class="item">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg></span>
+        <span><strong>Launch at login</strong><small><code>SMAppService</code> to Login Items</small></span>
+      </div>
+      <div class="item">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg></span>
+        <span><strong>Single instance</strong><small>Reopening the app shows Settings</small></span>
+      </div>
+    </div>
+    <div class="link" aria-hidden="true"><i></i></div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="num">03</span><h3>Strip per screen</h3></div>
+      <div class="item">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/></svg></span>
+        <span><strong>Notched screens only</strong><small><code>safeAreaInsets.top &gt; 0</code>, menu bar height</small></span>
+      </div>
+      <div class="item">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></span>
+        <span><strong>Under the menu bar</strong><small>Window level: menu bar − 1</small></span>
+      </div>
+      <div class="item">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="m4 4 7.07 17 2.51-7.39L21 11.07z"/></svg></span>
+        <span><strong>Click-through</strong><small>On every Space, never steals focus</small></span>
+      </div>
+    </div>
+    <div class="link" aria-hidden="true"><i></i></div>
+
+    <div class="stage">
+      <div class="stage-head"><span class="num">04</span><h3>Paint</h3></div>
+      <div class="item">
+        <span class="ic black"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3" fill="#000"/></svg></span>
+        <span><strong>Black</strong><small><code>BarView</code> fills RGB 0, 0, 0</small></span>
+      </div>
+      <div class="item">
+        <span class="ic glass"><svg viewBox="0 0 24 24"><path d="M12 3l1.9 5.8L20 10.7l-6.1 1.9L12 18.5l-1.9-5.9L4 10.7l6.1-1.9z"/></svg></span>
+        <span><strong>Blurred glass</strong><small>Behind-window blur, <span class="nw">1–100%</span></small></span>
+      </div>
+      <div class="item">
+        <span class="ic"><svg viewBox="0 0 24 24"><path d="M3 21V12a9 9 0 0 1 9-9h9"/></svg></span>
+        <span><strong>Round corners</strong><small>Bottom corners, <span class="nw">0–20 pt</span></small></span>
+      </div>
+    </div>
+  </section>
+
+  <h2>Result, verified</h2>
+  <section class="result">
+    <div class="tile hero">
+      <h4><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Menu bar drawn on top</h4>
+      <p>Menus and status icons stay fully usable. The strip only changes what's behind them, so the notch blends in.</p>
+    </div>
+    <div class="tile"><div class="big grad">0.0</div><p>Every visible black pixel, captured live as 16-bit float</p></div>
+    <div class="tile"><div class="big">25</div><p>Unit tests: geometry, settings, rendering, styles</p></div>
+    <div class="tile"><div class="big">2</div><p>Live checks: at launch and while restyling</p></div>
+  </section>
+  </div>
+
+  <footer>Native Swift · AppKit + SwiftUI · macOS 13+ · <code>./install.sh --login</code></footer>
+</main>
+<script>
+  if (new URLSearchParams(location.search).has("export")) document.documentElement.classList.add("export");
+  const mock = document.getElementById("mock");
+  const text = document.getElementById("mock-text");
+  const captions = {
+    off: "Off: the menu bar is see-through and the notch cuts into your wallpaper.",
+    black: "Black: every strip pixel is exactly RGB 0, so the notch vanishes.",
+    glass: "Glass: a frosted strip at your chosen strength, 1–100%."
+  };
+  document.querySelectorAll(".seg button").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const mode = btn.dataset.mode;
+      mock.dataset.mode = mode;
+      text.textContent = captions[mode];
+      document.querySelectorAll(".seg button").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+    });
+  });
+</script>
+</body>
+</html>
