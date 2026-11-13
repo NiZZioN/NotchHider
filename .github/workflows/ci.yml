@@ -30,12 +30,12 @@ jobs:
         run: ./build.sh   # runs ./test.sh first and fails the build if any test fails
 
       - name: Package app
-        run: ditto -c -k --keepParent build/NotchHider.app build/NotchHider.zip
+        run: ditto -c -k --keepParent build.noindex/NotchHider.app build.noindex/NotchHider.zip
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: NotchHider-${{ github.sha }}
-          path: build/NotchHider.zip
+          path: build.noindex/NotchHider.zip
           retention-days: 14
 
   security:
