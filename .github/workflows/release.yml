@@ -1,0 +1,36 @@
+name: Release
+
+# Push a tag like v1.2.0 (matching CFBundleShortVersionString in Info.plist) to publish a release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match app version
+        run: |
+          version=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Info.plist)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match Info.plist version $version"
+            exit 1
+          fi
+
+      - name: Test, build, zip and generate cask
+        run: ./release.sh   # runs the tests first
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            build/NotchHider-*.zip build/notchhider.rb \
+            --title "Notch Hider $GITHUB_REF_NAME" --generate-notes

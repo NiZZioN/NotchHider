@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test and build
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: xcode-select -p && swiftc --version
+
+      - name: Unit tests and app build
+        run: ./build.sh   # runs ./test.sh first and fails the build if any test fails
+
+      - name: Package app
+        run: ditto -c -k --keepParent build/NotchHider.app build/NotchHider.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NotchHider-${{ github.sha }}
+          path: build/NotchHider.zip
+          retention-days: 14
