@@ -9,7 +9,7 @@ while (( $# )); do case $1 in --login) LOGIN=1;; --dest) DEST=$2; shift;; esac; 
 pkill -x NotchHider 2>/dev/null && sleep 1 || true
 mkdir -p "$DEST"
 rm -rf "$DEST/NotchHider.app"
-cp -R build/NotchHider.app "$DEST/"
+cp -R build.noindex/NotchHider.app "$DEST/"
 (( LOGIN )) && "$DEST/NotchHider.app/Contents/MacOS/NotchHider" --register-login-item && echo "Launch at login: on"
 open "$DEST/NotchHider.app"
 echo "Installed to $DEST/NotchHider.app and started."
