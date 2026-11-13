@@ -1,0 +1,9 @@
+# Keeps the SHA-pinned GitHub Actions current (bumps the SHA and its version comment together).
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7   # don't adopt an action release in its first week (time for a bad one to be pulled)

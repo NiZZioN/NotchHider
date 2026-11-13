@@ -19,7 +19,9 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Toolchain
         run: xcode-select -p && swiftc --version
@@ -30,7 +32,7 @@ jobs:
       - name: Package app
         run: ditto -c -k --keepParent build/NotchHider.app build/NotchHider.zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: NotchHider-${{ github.sha }}
           path: build/NotchHider.zip
