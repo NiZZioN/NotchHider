@@ -70,3 +70,15 @@ private func freshDefaults() -> UserDefaults {
         #expect(BarSettings(defaults: d).look == .black)
     }
 }
+
+@Suite struct UpdateCheckSettingTests {
+    @Test func updateChecksAreOffUntilTheUserOptsIn() {
+        #expect(BarSettings(defaults: freshDefaults()).checkForUpdates == false)
+    }
+
+    @Test func updateCheckChoicePersistsAcrossInstances() {
+        let d = freshDefaults()
+        BarSettings(defaults: d).checkForUpdates = true
+        #expect(BarSettings(defaults: d).checkForUpdates == true)
+    }
+}

@@ -25,6 +25,25 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var loginStatus: SMAppService.Status = SMAppService.mainApp.status
     @Published var loginError: String?
 
+    // Update check: notify only, opt-in. "Check now" works even when automatic checks are off.
+    /// Called when the known update changes (the status menu shows it).
+    var onUpdateStatusChange: () -> Void = {}
+    @Published var checkForUpdates: Bool {
+        didSet {
+            store.checkForUpdates = checkForUpdates
+            if checkForUpdates { check(manual: false) }
+        }
+    }
+    @Published private(set) var pendingUpdate: AppVersion?
+    /// Last check GitHub answered (not merely attempted), so "up to date" is never claimed after a failure.
+    @Published private(set) var lastUpdateCheck: Date?
+    @Published private(set) var updateError: String?
+    @Published private(set) var isCheckingForUpdates = false
+    let installChannel = InstallChannel.detect()
+    let currentVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+    private lazy var updater = UpdateCheck(currentVersion: currentVersion,
+                                           fetch: { [currentVersion] in try await Self.fetchLatestRelease(appVersion: currentVersion) })
+
     init() {
         enabled = store.enabled
         look = store.look
@@ -32,6 +51,61 @@ final class SettingsModel: ObservableObject {
         roundCorners = store.roundCorners
         cornerRadius = store.cornerRadius
         showMenuBarIcon = store.showMenuBarIcon
+        checkForUpdates = store.checkForUpdates
+        refreshUpdateStatus()
+    }
+
+    func refreshUpdateStatus() {
+        pendingUpdate = updater.pendingUpdate
+        lastUpdateCheck = updater.lastSuccessfulCheck
+    }
+
+    /// At launch and from the hourly timer: only when the user opted in and a day has passed.
+    func checkIfDue() {
+        if checkForUpdates && updater.isDue { check(manual: false) }
+    }
+
+    /// Automatic checks fail silently; a manual one shows its error under the button.
+    func check(manual: Bool) {
+        guard !isCheckingForUpdates else { return }
+        isCheckingForUpdates = true
+        if manual { updateError = nil }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let result = await updater.run()
+            isCheckingForUpdates = false
+            switch result {
+            case .failed(let reason): if manual { updateError = reason }
+            case .upToDate, .available: updateError = nil
+            }
+            let before = pendingUpdate
+            refreshUpdateStatus()
+            if pendingUpdate != before { onUpdateStatusChange() }
+        }
+    }
+
+    /// The only network request the app makes: GitHub's "latest release" for this repository.
+    private static func fetchLatestRelease(appVersion: String) async throws -> Data {
+        var request = URLRequest(url: UpdateCheck.latestReleaseAPI,
+                                 cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("NotchHider/\(appVersion)", forHTTPHeaderField: "User-Agent")
+        let session = URLSession(configuration: .ephemeral)   // no cookies, no cache on disk
+        defer { session.finishTasksAndInvalidate() }
+        let (data, response) = try await session.data(for: request)
+        // URLSession doesn't throw on 403 (rate limit) or 404: treat anything but 200 as a failure.
+        guard let status = (response as? HTTPURLResponse)?.statusCode, status == 200 else {
+            throw UpdateFetchError(status: (response as? HTTPURLResponse)?.statusCode)
+        }
+        return data
+    }
+
+    var updateStatusText: String {
+        guard let last = lastUpdateCheck else { return "Version \(currentVersion) · not checked yet" }
+        let ago = RelativeDateTimeFormatter().localizedString(for: last, relativeTo: Date())
+        return pendingUpdate == nil
+            ? "Up to date (\(currentVersion)) · checked \(ago)"
+            : "Running \(currentVersion) · checked \(ago)"
     }
 
     /// Read from the system every time, so it never drifts from System Settings → Login Items.
@@ -53,6 +127,17 @@ final class SettingsModel: ObservableObject {
     var hasLaunchedBefore: Bool {
         get { UserDefaults.standard.bool(forKey: "hasLaunchedBefore") }
         set { UserDefaults.standard.set(newValue, forKey: "hasLaunchedBefore") }
+    }
+}
+
+struct UpdateFetchError: LocalizedError {
+    let status: Int?
+    var errorDescription: String? {
+        switch status {
+        case 403?, 429?: return "GitHub is limiting requests right now. Try again later."
+        case let code?: return "GitHub answered with HTTP \(code)."
+        case nil: return "No response from GitHub."
+        }
     }
 }
 
@@ -108,6 +193,37 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            Section("Updates") {
+                Toggle("Check for updates automatically", isOn: $model.checkForUpdates).toggleStyle(.checkbox)
+                HStack {
+                    Button("Check now") { model.check(manual: true) }
+                        .disabled(model.isCheckingForUpdates)
+                    if model.isCheckingForUpdates {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text(model.updateStatusText).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                if let version = model.pendingUpdate {
+                    if model.installChannel == .homebrew {
+                        LabeledContent("Version \(version.description) is available") {
+                            Button("Copy command") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(InstallChannel.homebrewUpgradeCommand, forType: .string)
+                            }
+                        }
+                        Text(InstallChannel.homebrewUpgradeCommand)
+                            .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    } else {
+                        LabeledContent("Version \(version.description) is available") {
+                            Button("Open release page") { NSWorkspace.shared.open(UpdateCheck.releasePage(for: version)) }
+                        }
+                    }
+                }
+                if let err = model.updateError {
+                    Text("Could not check: \(err)").font(.caption).foregroundStyle(.red)
+                }
+            }
             HStack {
                 Spacer()
                 Button("Quit Notch Hider") { NSApp.terminate(nil) }
@@ -137,8 +253,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         NSApp.setActivationPolicy(.accessory)
         model.onChange = { [weak self] in self?.settingsChanged() }
+        model.onUpdateStatusChange = { [weak self] in self?.updateStatusItem() }
         updateStatusItem()
         rebuild()
+
+        // Update check: at launch if due, then an hourly "is it due?" (robust to sleep, unlike a 24 h timer).
+        model.checkIfDue()
+        let timer = Timer(timeInterval: 3600, repeats: true) { [weak self] _ in self?.model.checkIfDue() }
+        timer.tolerance = 300
+        RunLoop.main.add(timer, forMode: .common)
 
         NotificationCenter.default.addObserver(
             self, selector: #selector(rebuild),
@@ -187,6 +310,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         hide.target = self
         hide.state = model.enabled ? .on : .off
         menu.addItem(hide)
+        if let version = model.pendingUpdate {
+            let update = NSMenuItem(title: "Update available: \(version.description)…", action: #selector(openSettings), keyEquivalent: "")
+            update.target = self
+            menu.addItem(update)
+        }
         let settings = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settings.target = self
         menu.addItem(settings)
@@ -200,6 +328,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func showSettings() {
         model.refreshLoginStatus()
+        model.refreshUpdateStatus()
         if settingsWindow == nil {
             let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(model: model)))
             w.title = "Notch Hider"
