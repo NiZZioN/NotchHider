@@ -26,6 +26,7 @@
 | 🔲 | **Round corners**: 0–20 pt slider | 🖥️ | **Notched screens only**: externals untouched |
 | 🚀 | **Launch at login**: native Login Items | 👻 | **Hideable icon**: reopen app for settings |
 | 🔄 | **Follows changes**: displays, Spaces, wake | 🧪 | **Tested**: unit + live pixel checks |
+| 🔔 | **Update check**: opt-in, notify only | 🔒 | **Offline by default**: no network unless you ask |
 
 ---
 

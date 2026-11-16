@@ -38,4 +38,10 @@ public final class BarSettings {
         get { defaults.object(forKey: "showMenuBarIcon") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "showMenuBarIcon") }
     }
+
+    /// Opt-in: the app makes no network requests unless this is on (or the user presses "Check now").
+    public var checkForUpdates: Bool {
+        get { defaults.object(forKey: "checkForUpdates") as? Bool ?? false }
+        set { defaults.set(newValue, forKey: "checkForUpdates") }
+    }
 }
